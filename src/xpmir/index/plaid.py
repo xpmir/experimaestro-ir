@@ -351,6 +351,20 @@ class PlaidIndexBuilder(Task):
                 per_doc_cpu = [
                     t.detach().to("cpu", dtype=torch.float32) for t in per_doc
                 ]
+                if (
+                    not num_docs_seen
+                    and len(per_doc_cpu) > 0
+                    and per_doc_cpu[0].shape[0] > 0
+                ):
+                    sample_norms = per_doc_cpu[0].norm(dim=-1)
+                    mean_token_norm = sample_norms.mean().item()
+                    if abs(mean_token_norm - 1.0) > 0.15:
+                        logger.warning(
+                            "⚠️ [FastPLAID Warning] Document token embeddings have mean norm %.3f "
+                            "(expected ~1.0). FastPLAID centroids are unit-norm; unnormalized embeddings "
+                            "cause residual quantization distortion at low bit-widths (e.g. 2-bit).",
+                            mean_token_norm,
+                        )
                 doc_buffer.extend(per_doc_cpu)
 
                 if len(doc_buffer) >= self.buffer_size:
