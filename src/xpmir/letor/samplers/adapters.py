@@ -41,6 +41,9 @@ class BufferedProcessingDataset(ShardedIterableDataset):
         if buffer:
             yield from self._flush(buffer)
 
+    def set_resume_step(self, step: int):
+        self.inner.set_resume_step(step)
+
     def state_dict(self) -> Dict[str, Any]:
         return self.inner.state_dict()
 

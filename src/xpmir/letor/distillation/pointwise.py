@@ -1,6 +1,6 @@
 """Pointwise distillation sampler and trainer for Experimaestro-IR."""
 
-from typing import List, TypedDict, Iterator, Optional
+from typing import List, TypedDict, Optional
 from typing_extensions import ReadOnly
 from pathlib import Path
 import sys
@@ -50,20 +50,31 @@ def pointwise_distillation_collate(
 
 
 class PreShuffledPointwiseDataset(ShardedIterableDataset):
-    def __init__(self, hf_data, sample_builder):
-        super().__init__()
+    """Yields pointwise distillation samples directly from a pre-shuffled Arrow dataset.
+
+    Inherits elastic, O(1) multi-GPU sharding, state tracking, and logging directly from
+    ShardedIterableDataset.
+    """
+
+    def __init__(
+        self,
+        hf_data,
+        sample_builder,
+        global_batch_size: int = 1,
+        context: Optional[TrainerContext] = None,
+    ):
         self.hf_data = hf_data
         self.sample_builder = sample_builder
-
-    def iter_shard(
-        self, shard_id: int, num_shards: int
-    ) -> Iterator[PointwiseDistillationSample]:
-        # Use contiguous=True to guarantee sequential disk reads for the worker
-        shard = self.hf_data.shard(
-            num_shards=num_shards, index=shard_id, contiguous=True
+        builder_fn = (
+            sample_builder._build_sample if sample_builder is not None else None
         )
-        for row in shard:
-            yield self.sample_builder._build_sample(row)
+        super().__init__(
+            source=hf_data,
+            sample_builder=builder_fn,
+            global_batch_size=global_batch_size,
+        )
+        if context is not None and getattr(context, "state", None) is not None:
+            self.set_resume_step(getattr(context.state, "steps", 0))
 
 
 class PointwiseDistillationSampler(Sampler):
@@ -74,7 +85,11 @@ class PointwiseDistillationSampler(Sampler):
     def initialize(self, random: np.random.RandomState):
         super().initialize(random)
 
-    def as_dataset(self) -> ShardedIterableDataset:
+    def as_dataset(
+        self,
+        global_batch_size: Optional[int] = None,
+        context: Optional[TrainerContext] = None,
+    ) -> ShardedIterableDataset:
         from datasets import load_from_disk
 
         # Experimaestro might pass local_path as a string or Path
@@ -86,7 +101,14 @@ class PointwiseDistillationSampler(Sampler):
             # Fall back to default load_dataset logic
             hf_dataset = self.dataset.data
 
-        return InfiniteDataset(PreShuffledPointwiseDataset(hf_dataset, self.dataset))
+        return InfiniteDataset(
+            PreShuffledPointwiseDataset(
+                hf_dataset,
+                self.dataset,
+                global_batch_size=global_batch_size or 1,
+                context=context,
+            )
+        )
 
 
 class DistillationPointwiseLoss(Config, nn.Module):
@@ -166,7 +188,9 @@ class PointwiseDistillationTrainer(LossTrainer):
 
         self.sampler.initialize(random)
 
-        dataset = self.sampler.as_dataset()
+        dataset = self.sampler.as_dataset(
+            global_batch_size=self.batch_size, context=context
+        )
 
         collate_fn = wrap_collate_with_tokenizer(
             self.model, pointwise_distillation_collate, log=logger
