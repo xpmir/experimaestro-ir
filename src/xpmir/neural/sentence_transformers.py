@@ -679,8 +679,8 @@ class STMultiVectorEncoder(AbstractModuleScorer):
     doc_prompt: Param[Optional[str]] = field(default="[D] ")
     """Optional document prompt prefix override (e.g. '[D] ' or '[unused1] ')."""
 
-    query_expansion: Param[Optional[Union[Dict[str, Union[str, int, bool]], bool]]] = (
-        field(default=None)
+    query_expansion: Param[Optional[Dict[str, Union[str, int, bool]]]] = field(
+        default=None
     )
     """ColBERT query expansion configuration dict, e.g. {'strategy': 'fixed', 'attend': False, 'token': '[MASK]', 'length': 32}."""
 
@@ -1146,6 +1146,18 @@ def st_multivector_scorer(
     :param normalize_embeddings: Whether to normalize embeddings
     :returns: Configured STMultiVectorEncoder
     """
+    # Normalize query_expansion to Dict or None
+    qe_dict: Optional[Dict[str, Union[str, int, bool]]] = None
+    if query_expansion is True:
+        qe_dict = {
+            "strategy": "fixed",
+            "attend": False,
+            "token": "[MASK]",
+            "length": query_maxlen or 32,
+        }
+    elif isinstance(query_expansion, dict):
+        qe_dict = dict(query_expansion)
+
     return STMultiVectorEncoder.C(
         model_id=model_id,
         dim=dim,
@@ -1155,7 +1167,7 @@ def st_multivector_scorer(
         similarity_fn_name=similarity_fn_name,
         query_prompt=query_prompt,
         doc_prompt=doc_prompt,
-        query_expansion=query_expansion,
+        query_expansion=qe_dict,
         skiplist_words=skiplist_words,
         normalize_embeddings=normalize_embeddings,
     )
