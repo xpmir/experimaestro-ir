@@ -119,3 +119,29 @@ def test_bow_bm25_variant(context, bow_index):
     bm25, lucene = scores("bm25"), scores("lucene")
     assert len(bm25) == len(lucene) > 0
     assert bm25 != lucene
+
+
+def test_bow_structured_queries(context, bow_index):
+    """Structured (matchop) queries: a weighted #combine matches the
+    equivalent text query with repeated terms"""
+    index_config, objects, _ = bow_index
+
+    def retriever(structured: bool):
+        r = BOWRetriever.C(
+            index=index_config, model=BM25.C(), topk=10, structured=structured
+        ).instance(context=context, objects=objects)
+        r.initialize()
+        return r
+
+    text, structured = retriever(False), retriever(True)
+    expected = text.retrieve("document document query")
+    observed = structured.retrieve("#combine:0=2:1=1(document query)")
+    assert [d.document["id"] for d in observed] == [d.document["id"] for d in expected]
+    assert [d.score for d in observed] == pytest.approx([d.score for d in expected])
+
+    queries = {"q1": "#combine(first query)", "q2": "#combine:0=3(second document)"}
+    all_results = structured.retrieve_all(queries)
+    for key, query in queries.items():
+        assert [d.document["id"] for d in all_results[key]] == [
+            d.document["id"] for d in structured.retrieve(query)
+        ]

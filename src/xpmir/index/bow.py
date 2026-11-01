@@ -82,6 +82,19 @@ class BOWSparseRetrieverIndex(Config):
             for hits in self.scored_index.search_maxscore_many(queries, top_k)
         ]
 
+    def retrieve_structured_many(
+        self, queries: List[str], top_k: int
+    ) -> List[List[ScoredDocument]]:
+        """Searches a batch of structured (matchop) queries, e.g.
+        ``#combine:0=2:1=1(lazy dog)``, in parallel"""
+        return [
+            [
+                ScoredDocument(self.documents.document_int(sd.docid), sd.score)
+                for sd in hits
+            ]
+            for hits in self.scored_index.search_maxscore_query_many(queries, top_k)
+        ]
+
 
 class BOWRetriever(Retriever):
     """BM25 retriever using the impact_index BOW index
@@ -102,6 +115,10 @@ class BOWRetriever(Retriever):
     in_memory: Meta[bool] = field(default=False, ignore_default=True)
     """Whether the index should be fully loaded in memory"""
 
+    structured: Param[bool] = field(default=False, ignore_default=True)
+    """Queries are structured (matchop) queries, e.g. ``#combine:0=2(a b)``
+    or ``#combine(a #syn(b c))`` (see impact-index), instead of text"""
+
     def initialize(self):
         super().initialize()
         self.index.initialize(self.in_memory, self.model)
@@ -111,6 +128,10 @@ class BOWRetriever(Retriever):
         return record["text_item"].text if isinstance(record, dict) else record
 
     def retrieve(self, record: IDTextRecord) -> List[ScoredDocument]:
+        if self.structured:
+            return self.index.retrieve_structured_many([self._text(record)], self.topk)[
+                0
+            ]
         query = self.index.analyze_query(self._text(record))
         return self.index.retrieve(query, self.topk)
 
@@ -118,6 +139,11 @@ class BOWRetriever(Retriever):
         self, queries: Dict[str, IDTextRecord]
     ) -> Dict[str, List[ScoredDocument]]:
         keys = list(queries)
+        if self.structured:
+            texts = [self._text(queries[k]) for k in keys]
+            return dict(
+                zip(keys, self.index.retrieve_structured_many(texts, self.topk))
+            )
         analyzed = [self.index.analyze_query(self._text(queries[k])) for k in keys]
         return dict(zip(keys, self.index.retrieve_many(analyzed, self.topk)))
 
