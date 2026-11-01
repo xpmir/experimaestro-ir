@@ -34,6 +34,27 @@ before computing metrics.
 .. autoclass:: xpmir.evaluation.EvaluationsCollection
     :members: evaluate_retriever, to_dataframe
 
+Significance tests
+------------------
+
+:mod:`xpmir.significance` compares the per-topic results of two
+:class:`~xpmir.evaluation.Evaluate` tasks (their
+:class:`~datamaestro_ir.data.trec.TrecAdhocResults` output) with a paired
+t-test.
+
+.. code-block:: python
+
+    from xpmir.significance import paired_ttest
+
+    test = paired_ttest(run_results, bm25_results, "nDCG@10")
+    if test.better(alpha=0.05):
+        ...
+
+.. autofunction:: xpmir.significance.paired_ttest
+.. autofunction:: xpmir.significance.per_topic
+.. autoclass:: xpmir.significance.PairedTest
+    :members: better
+
 Metrics
 -------
 

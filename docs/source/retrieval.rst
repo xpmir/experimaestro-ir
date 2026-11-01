@@ -185,8 +185,11 @@ Documents are analysed at indexing time; the defaults of
 tokenization), so results are close to Anserini's BM25. The analyzer is stored
 in the index, and queries are processed with the same pipeline. Retrieval uses
 MaxScore dynamic pruning. Only the :class:`~xpmir.rankers.standard.BM25` model
-is currently supported (``k1`` and ``b`` are set at retrieval time, so one
-index can serve several BM25 parameterizations).
+is currently supported (``k1``, ``b`` and the IDF ``variant`` are set at
+retrieval time, so one index can serve several BM25 parameterizations). Use
+``BM25.C(variant="lucene")`` for Lucene's IDF, to match Pyserini/Anserini
+scores. ``BOWRetriever.retrieve_all`` searches all the topics at once on
+impact-index's thread pool.
 
 .. code-block:: python
 

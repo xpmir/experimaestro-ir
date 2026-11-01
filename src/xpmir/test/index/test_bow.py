@@ -103,3 +103,19 @@ def test_bow_retrieve_empty_query(bow_retriever):
     """Test retrieval with a query that has no matching terms"""
     results = bow_retriever.retrieve("xyzzyplugh")
     assert isinstance(results, list)
+
+
+def test_bow_bm25_variant(context, bow_index):
+    """The BM25 IDF variant is passed to impact-index"""
+    index_config, objects, _ = bow_index
+
+    def scores(variant):
+        retriever = BOWRetriever.C(
+            index=index_config, model=BM25.C(variant=variant), topk=10
+        ).instance(context=context, objects=objects)
+        retriever.initialize()
+        return [sd.score for sd in retriever.retrieve("document")]
+
+    bm25, lucene = scores("bm25"), scores("lucene")
+    assert len(bm25) == len(lucene) > 0
+    assert bm25 != lucene

@@ -51,7 +51,9 @@ class BOWSparseRetrieverIndex(Config):
         index = impact_index.Index.load(str(self.index_path.absolute()), in_memory)
 
         if isinstance(model, BM25):
-            scoring = impact_index.BM25Scoring(k1=model.k1, b=model.b)
+            scoring = impact_index.BM25Scoring(
+                k1=model.k1, b=model.b, variant=model.variant
+            )
         else:
             raise ValueError(f"Unsupported model type: {type(model)}")
 
@@ -65,15 +67,20 @@ class BOWSparseRetrieverIndex(Config):
         return self._analyzer.analyze_query(text)
 
     def retrieve(self, query: Dict[int, float], top_k: int) -> List[ScoredDocument]:
-        results = []
-        for sd in self.scored_index.search_maxscore(query, top_k):
-            results.append(
-                ScoredDocument(
-                    self.documents.document_int(sd.docid),
-                    sd.score,
-                )
-            )
-        return results
+        return self.retrieve_many([query], top_k)[0]
+
+    def retrieve_many(
+        self, queries: List[Dict[int, float]], top_k: int
+    ) -> List[List[ScoredDocument]]:
+        """Searches a batch of queries (in parallel, on impact-index's thread
+        pool)"""
+        return [
+            [
+                ScoredDocument(self.documents.document_int(sd.docid), sd.score)
+                for sd in hits
+            ]
+            for hits in self.scored_index.search_maxscore_many(queries, top_k)
+        ]
 
 
 class BOWRetriever(Retriever):
@@ -99,18 +106,20 @@ class BOWRetriever(Retriever):
         super().initialize()
         self.index.initialize(self.in_memory, self.model)
 
+    @staticmethod
+    def _text(record: IDTextRecord | str) -> str:
+        return record["text_item"].text if isinstance(record, dict) else record
+
     def retrieve(self, record: IDTextRecord) -> List[ScoredDocument]:
-        text = record["text_item"].text if isinstance(record, dict) else record
-        query = self.index.analyze_query(text)
+        query = self.index.analyze_query(self._text(record))
         return self.index.retrieve(query, self.topk)
 
     def retrieve_all(
         self, queries: Dict[str, IDTextRecord]
     ) -> Dict[str, List[ScoredDocument]]:
-        results = {}
-        for key, record in tqdm(list(queries.items())):
-            results[key] = self.retrieve(record)
-        return results
+        keys = list(queries)
+        analyzed = [self.index.analyze_query(self._text(queries[k])) for k in keys]
+        return dict(zip(keys, self.index.retrieve_many(analyzed, self.topk)))
 
 
 class BOWSparseRetrieverIndexBuilder(Task):

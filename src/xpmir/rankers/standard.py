@@ -13,6 +13,10 @@ class BM25(Model):
     k1: Param[float] = field(default=0.9, ignore_default=True)
     b: Param[float] = field(default=0.4, ignore_default=True)
 
+    variant: Param[str] = field(default="bm25", ignore_default=True)
+    """IDF formula used by impact-index: ``"bm25"`` (Robertson/Sparck-Jones)
+    or ``"lucene"`` (Lucene's ``BM25Similarity``, as in Pyserini/Anserini)"""
+
 
 class QLDirichlet(Model):
     """Query likelihood (Dirichlet smoothing) model definition"""
