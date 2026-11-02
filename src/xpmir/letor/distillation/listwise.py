@@ -167,10 +167,24 @@ class ListwiseSoftmaxCrossEntropy(DistillationListwiseLoss):
 
     NAME = "infonce"
 
+    temperature: Param[float] = field(default=1.0, ignore_default=True)
+    """Temperature scaling factor applied to logits before softmax"""
+
+    def __validate__(self):
+        super().__validate__()
+        if self.temperature <= 0:
+            raise ValueError(
+                f"ListwiseSoftmaxCrossEntropy temperature must be > 0, got {self.temperature}"
+            )
+
     def initialize(self, ranker: AbstractModuleScorer):
         super().initialize(ranker)
+        if self.temperature <= 0:
+            raise ValueError(
+                f"ListwiseSoftmaxCrossEntropy temperature must be > 0, got {self.temperature}"
+            )
         self.normalize = {
-            ModuleOutputType.REAL: lambda x: F.log_softmax(x, -1),
+            ModuleOutputType.REAL: lambda x: F.log_softmax(x / self.temperature, -1),
             ModuleOutputType.LOG_PROBABILITY: lambda x: x,
             ModuleOutputType.PROBABILITY: lambda x: x.log(),
         }[ranker.outputType]
