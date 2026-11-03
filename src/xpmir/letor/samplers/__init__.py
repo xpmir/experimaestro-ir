@@ -55,8 +55,6 @@ class ModelBasedSampler(Sampler):
     _store: DocumentStore
 
     def __validate__(self) -> None:
-        super().__validate__()
-
         assert self.retriever.get_store() is not None or isinstance(
             self.dataset.documents, DocumentStore
         ), "The retriever has no associated document store (to get document text)"

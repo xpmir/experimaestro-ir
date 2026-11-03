@@ -45,7 +45,7 @@ class AbstractTopicFold(Topics):
                 yield topic
 
     def __validate__(self) -> None:
-        super().__validate__()
+        pass
 
     @property
     def topic_recordtype(self):

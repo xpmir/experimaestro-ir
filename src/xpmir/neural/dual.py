@@ -122,7 +122,6 @@ class DualVectorScorer(DualRepresentationScorer[QueriesRep, DocsRep]):
         return self.query_encoder or self.encoder
 
     def __validate__(self):
-        super().__validate__()
         assert not self.encoder.static(), "The vocabulary should be learnable"
 
     def _has_separate_query_model(self) -> bool:
@@ -247,7 +246,6 @@ class DotDense(Dense):
     """Dual model based on inner product."""
 
     def __validate__(self):
-        super().__validate__()
         assert not self.encoder.static(), "The vocabulary should be learnable"
 
     def encode_queries(self, records: List[IDTextRecord]):

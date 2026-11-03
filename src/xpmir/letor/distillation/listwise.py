@@ -171,7 +171,6 @@ class ListwiseSoftmaxCrossEntropy(DistillationListwiseLoss):
     """Temperature scaling factor applied to logits before softmax"""
 
     def __validate__(self):
-        super().__validate__()
         if self.temperature <= 0:
             raise ValueError(
                 f"ListwiseSoftmaxCrossEntropy temperature must be > 0, got {self.temperature}"
