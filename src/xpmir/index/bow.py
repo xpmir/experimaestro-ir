@@ -51,7 +51,9 @@ class BOWSparseRetrieverIndex(Config):
         index = impact_index.Index.load(str(self.index_path.absolute()), in_memory)
 
         if isinstance(model, BM25):
-            scoring = impact_index.BM25Scoring(k1=model.k1, b=model.b)
+            scoring = impact_index.BM25Scoring(
+                k1=model.k1, b=model.b, variant=model.variant
+            )
         else:
             raise ValueError(f"Unsupported model type: {type(model)}")
 
@@ -65,15 +67,33 @@ class BOWSparseRetrieverIndex(Config):
         return self._analyzer.analyze_query(text)
 
     def retrieve(self, query: Dict[int, float], top_k: int) -> List[ScoredDocument]:
-        results = []
-        for sd in self.scored_index.search_maxscore(query, top_k):
-            results.append(
-                ScoredDocument(
-                    self.documents.document_int(sd.docid),
-                    sd.score,
-                )
-            )
-        return results
+        return self.retrieve_many([query], top_k)[0]
+
+    def retrieve_many(
+        self, queries: List[Dict[int, float]], top_k: int
+    ) -> List[List[ScoredDocument]]:
+        """Searches a batch of queries (in parallel, on impact-index's thread
+        pool)"""
+        return [
+            [
+                ScoredDocument(self.documents.document_int(sd.docid), sd.score)
+                for sd in hits
+            ]
+            for hits in self.scored_index.search_maxscore_many(queries, top_k)
+        ]
+
+    def retrieve_structured_many(
+        self, queries: List[str], top_k: int
+    ) -> List[List[ScoredDocument]]:
+        """Searches a batch of structured (matchop) queries, e.g.
+        ``#combine:0=2:1=1(lazy dog)``, in parallel"""
+        return [
+            [
+                ScoredDocument(self.documents.document_int(sd.docid), sd.score)
+                for sd in hits
+            ]
+            for hits in self.scored_index.search_maxscore_query_many(queries, top_k)
+        ]
 
 
 class BOWRetriever(Retriever):
@@ -95,22 +115,37 @@ class BOWRetriever(Retriever):
     in_memory: Meta[bool] = field(default=False, ignore_default=True)
     """Whether the index should be fully loaded in memory"""
 
+    structured: Param[bool] = field(default=False, ignore_default=True)
+    """Queries are structured (matchop) queries, e.g. ``#combine:0=2(a b)``
+    or ``#combine(a #syn(b c))`` (see impact-index), instead of text"""
+
     def initialize(self):
         super().initialize()
         self.index.initialize(self.in_memory, self.model)
 
+    @staticmethod
+    def _text(record: IDTextRecord | str) -> str:
+        return record["text_item"].text if isinstance(record, dict) else record
+
     def retrieve(self, record: IDTextRecord) -> List[ScoredDocument]:
-        text = record["text_item"].text if isinstance(record, dict) else record
-        query = self.index.analyze_query(text)
+        if self.structured:
+            return self.index.retrieve_structured_many([self._text(record)], self.topk)[
+                0
+            ]
+        query = self.index.analyze_query(self._text(record))
         return self.index.retrieve(query, self.topk)
 
     def retrieve_all(
         self, queries: Dict[str, IDTextRecord]
     ) -> Dict[str, List[ScoredDocument]]:
-        results = {}
-        for key, record in tqdm(list(queries.items())):
-            results[key] = self.retrieve(record)
-        return results
+        keys = list(queries)
+        if self.structured:
+            texts = [self._text(queries[k]) for k in keys]
+            return dict(
+                zip(keys, self.index.retrieve_structured_many(texts, self.topk))
+            )
+        analyzed = [self.index.analyze_query(self._text(queries[k])) for k in keys]
+        return dict(zip(keys, self.index.retrieve_many(analyzed, self.topk)))
 
 
 class BOWSparseRetrieverIndexBuilder(Task):
