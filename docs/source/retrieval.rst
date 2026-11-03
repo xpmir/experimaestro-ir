@@ -191,6 +191,17 @@ retrieval time, so one index can serve several BM25 parameterizations). Use
 scores. ``BOWRetriever.retrieve_all`` searches all the topics at once on
 impact-index's thread pool.
 
+Other languages are analysed like Anserini/Pyserini do (their ``-language``
+Lucene analyzers, impact-index's ``"pyserini"`` pipeline). The language is the
+builder's ``language`` parameter, or by default the language of the documents
+when their ``languages`` metadata gives a single one (e.g. MIRACL), so
+``BOWSparseRetrieverIndexBuilder.C(documents=ds.documents)`` just works. The
+builder is a :class:`~experimaestro.Prepare`: what the analysis needs (e.g. the
+Japanese and Korean dictionaries) is downloaded on the machine running the
+experimental plan, before launching the task. Indexing nodes without network
+access must share impact-index's cache directory (``$IMPACT_INDEX_CACHE``, or
+the OS cache directory).
+
 .. code-block:: python
 
     from xpmir.evaluation import Evaluate

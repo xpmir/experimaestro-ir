@@ -145,3 +145,79 @@ def test_bow_structured_queries(context, bow_index):
         assert [d.document["id"] for d in all_results[key]] == [
             d.document["id"] for d in structured.retrieve(query)
         ]
+
+
+def _supports(feature: str) -> bool:
+    import impact_index
+
+    from datamaestro_ir.data import Documents
+
+    if feature == "languages":
+        return "languages" in Documents.__getxpmtype__().arguments
+    return hasattr(impact_index, "prepare_analyzer")
+
+
+def _analysis(context, **kwargs):
+    builder = BOWSparseRetrieverIndexBuilder.C(**kwargs)
+    return builder.instance(context=context, objects=ObjectStore()).analysis()
+
+
+def test_bow_index_builder_analysis(context):
+    """Language and pipeline, given or inferred"""
+    documents = SampleDocumentStore.C(num_docs=5)
+    assert _analysis(context, documents=documents) == ("english", None)
+    assert _analysis(context, documents=documents, language="fr") == (
+        "fr",
+        "pyserini",
+    )
+    assert _analysis(
+        context, documents=documents, language="en", pipeline="pyserini"
+    ) == ("en", "pyserini")
+
+
+def test_bow_index_builder_prepare():
+    """The builder is its own Prepare (run before launching it)"""
+    from experimaestro.core.objects.config import _collect_prepares
+
+    builder = BOWSparseRetrieverIndexBuilder.C(
+        documents=SampleDocumentStore.C(num_docs=5), language="ja"
+    )
+    assert any(p is builder for p in _collect_prepares(builder))
+
+
+@pytest.mark.skipif(not _supports("languages"), reason="needs Documents.languages")
+def test_bow_index_builder_documents_language(context):
+    documents = SampleDocumentStore.C(num_docs=5, languages=["fr"])
+    assert _analysis(context, documents=documents) == ("fr", "pyserini")
+    # The language is metadata: the identifier is the one of a default builder
+    assert (
+        BOWSparseRetrieverIndexBuilder.C(documents=documents).__identifier__().all
+        == BOWSparseRetrieverIndexBuilder.C(
+            documents=SampleDocumentStore.C(num_docs=5, languages=["fr"])
+        )
+        .__identifier__()
+        .all
+    )
+    with pytest.raises(ValueError):
+        _analysis(
+            context,
+            documents=SampleDocumentStore.C(num_docs=5, languages=["fr", "de"]),
+        )
+
+
+@pytest.mark.skipif(not _supports("pipeline"), reason="needs impact-index >= 1.9")
+def test_bow_pyserini_french(context):
+    """Index built with the French Lucene analyzer of Pyserini"""
+    objects = ObjectStore()
+    builder = BOWSparseRetrieverIndexBuilder.C(
+        documents=SampleDocumentStore.C(num_docs=20), language="fr"
+    )
+    task = builder.instance(context=context, objects=objects)
+    task.prepare()
+    task.execute()
+    index = builder.task_outputs(lambda x: x).instance(objects=objects)
+    import impact_index
+
+    analyzer = impact_index.Index.load(str(index.index_path), True).analyzer()
+    # French light stemming: "documents" -> "document"
+    assert analyzer.analyze_query("documents") == analyzer.analyze_query("document")

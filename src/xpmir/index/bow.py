@@ -12,6 +12,7 @@ from experimaestro import (
     Task,
     Param,
     Meta,
+    Prepare,
     field,
     PathGenerator,
     tqdm,
@@ -148,7 +149,7 @@ class BOWRetriever(Retriever):
         return dict(zip(keys, self.index.retrieve_many(analyzed, self.topk)))
 
 
-class BOWSparseRetrieverIndexBuilder(Task):
+class BOWSparseRetrieverIndexBuilder(Task, Prepare):
     """Builds a bag-of-words index from document text
 
     Uses impact_index.BOWIndexBuilder to tokenize documents and store
@@ -167,11 +168,20 @@ class BOWSparseRetrieverIndexBuilder(Task):
     stemmer: Param[str] = field(default="porter", ignore_default=True)
     """Stemmer: 'porter' (Lucene-compatible), 'snowball' (Porter2), or 'none'"""
 
-    language: Param[str] = field(default="english", ignore_default=True)
-    """Language for stemming and stop words"""
+    language: Param[str | None] = field(default=None, ignore_default=True)
+    """Language for stemming and stop words (name or ISO 639-1 code); by
+    default, the single language of ``documents.languages`` if set (it is
+    metadata, but the documents' identifier differs anyway), or English"""
 
     stop_words: Param[bool] = field(default=True, ignore_default=True)
     """Whether to filter stop words (uses Lucene defaults for the language)"""
+
+    pipeline: Param[str | None] = field(default=None, ignore_default=True)
+    """impact-index text analysis pipeline. With ``"pyserini"`` and another
+    language than English, the Lucene analyzer Anserini/Pyserini uses for the
+    language (``stemmer`` is then ignored unless it is not ``"porter"``). By
+    default, ``"pyserini"`` for other languages than English, and the
+    analysis described above for English"""
 
     batch_size: Param[int] = field(default=DEFAULT_BATCH_SIZE, ignore_default=True)
     """Batch size for parallel text analysis"""
@@ -191,6 +201,35 @@ class BOWSparseRetrieverIndexBuilder(Task):
     version: Constant[int] = 3
     """Version 3: Porter stemmer, stop words, batch indexing, compression by default"""
 
+    def analysis(self) -> tuple[str, str | None]:
+        """The language and pipeline used to analyze the documents"""
+        language = self.language
+        if language is None:
+            languages = getattr(self.documents, "languages", None) or []
+            if len(languages) > 1:
+                raise ValueError(
+                    f"Documents have several languages ({languages}): "
+                    "the builder's language must be given"
+                )
+            language = languages[0] if languages else "english"
+        pipeline = self.pipeline
+        if pipeline is None and language not in ("en", "english"):
+            pipeline = "pyserini"
+        return language, pipeline
+
+    def prepare(self):
+        """Downloads what the text analysis needs (e.g. the Japanese and
+        Korean dictionaries of the Pyserini pipeline)
+
+        Run by experimaestro on the machine running the experimental plan,
+        before launching the task -- so that it can run on nodes without
+        network access, provided they share impact-index's cache directory
+        (``$IMPACT_INDEX_CACHE``, or the OS cache directory)
+        """
+        language, pipeline = self.analysis()
+        for path in impact_index.prepare_analyzer(language, pipeline=pipeline):
+            logger.info("Analyzer resource for %s: %s", language, path)
+
     def execute(self):
         if self.index_path.is_dir():
             shutil.rmtree(self.index_path)
@@ -200,13 +239,22 @@ class BOWSparseRetrieverIndexBuilder(Task):
         options = impact_index.BuilderOptions()
         options.in_memory_threshold = self.in_memory_threshold
 
+        language, pipeline = self.analysis()
+        kwargs = {}
+        stemmer = self.stemmer
+        if pipeline is not None:
+            kwargs["pipeline"] = pipeline
+            # The pipeline's own stemmer unless another one is asked for
+            if stemmer == "porter":
+                stemmer = None
         builder = impact_index.BOWIndexBuilder(
             str(self.index_path),
             options=options,
             dtype="int32",
-            stemmer=self.stemmer,
-            language=self.language,
+            stemmer=stemmer,
+            language=language,
             stop_words=self.stop_words,
+            **kwargs,
         )
 
         max_docs = self.documents.documentcount
