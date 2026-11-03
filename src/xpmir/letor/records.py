@@ -107,7 +107,7 @@ class PointwiseItem(SampleItem[DocT, QueryT]):
 RT = TypeVar("RT")
 
 
-class BaseItems(List[RT]):
+class BaseItems(Generic[RT]):
     """Base items just exposes iterables on (query, document) pairs
 
     items can be structured, i.e. the same queries and documents
@@ -480,6 +480,11 @@ class BatchwiseItems(BaseItems):
 
     relevances: torch.Tensor
 
+    def to(self, *args, **kwargs):
+        if hasattr(self, "relevances") and self.relevances is not None:
+            self.relevances = self.relevances.to(*args, **kwargs)
+        return self
+
     def __getitem__(self, ix: Union[slice, int]):
         """Sub-sample"""
         raise NotImplementedError(f"__getitem__() in {self.__class__.__name__}")
@@ -509,9 +514,27 @@ class ProductItems(BatchwiseItems):
 
     is_product = True
 
-    def __init__(self):
+    def __init__(self, items: Optional[Iterable[PointwiseItems]] = None):
         self._topics = []
         self._documents = []
+        if items is not None:
+            items_list = list(items)
+            if items_list:
+                self._documents = list(items_list[0].documents)
+                rels = []
+                has_rels = False
+                for pw_items in items_list:
+                    if len(pw_items.topics) > 0:
+                        self._topics.append(pw_items.topics[0])
+                    if pw_items.relevances and any(
+                        r is not None for r in pw_items.relevances
+                    ):
+                        has_rels = True
+                    rels.append(
+                        [r if r is not None else 0.0 for r in pw_items.relevances]
+                    )
+                if has_rels and self._topics and self._documents:
+                    self.set_relevances(torch.tensor(rels, dtype=torch.float32))
 
     def add_topics(self, *topics: IDTextRecord):
         self._topics.extend(topics)
@@ -609,7 +632,7 @@ class ProductItems(BatchwiseItems):
         return records
 
 
-class DocumentRecords(List[IDTextRecord]):
+class DocumentRecords:
     """Masked Language Modeling Records are a set of documents"""
 
     # Text of the documents
@@ -622,11 +645,17 @@ class DocumentRecords(List[IDTextRecord]):
             for item in items:
                 self.add(item)
 
+    def to(self, *args, **kwargs):
+        return self
+
     def add(self, record: IDTextRecord):
         self.documents.append(record)
 
     def __len__(self):
         return len(self.documents)
+
+    def __iter__(self):
+        return iter(self.documents)
 
     def __getitem__(self, ix: Union[slice, int]):
         if isinstance(ix, slice):

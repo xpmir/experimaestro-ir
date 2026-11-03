@@ -170,11 +170,7 @@ class DistillationPairwiseTrainer(LossTrainer):
 
         # Get the next batch and compute the scores for each query/document pair
         if tokenized_records is not None:
-            scores = (
-                self.model(records, tokenized=tokenized_records)
-                .reshape(2, len(records))
-                .T
-            )
+            scores = self.model(tokenized=tokenized_records).reshape(2, len(records)).T
         else:
             scores = self.model(records).reshape(2, len(records)).T
 

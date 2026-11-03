@@ -376,7 +376,7 @@ class DistillationListwiseTrainer(LossTrainer):
 
         # Get the next batch and compute the scores for each query/document
         if tokenized_records is not None:
-            scores = self.model(records, tokenized=tokenized_records)
+            scores = self.model(tokenized=tokenized_records)
         else:
             scores = self.model(records)
 

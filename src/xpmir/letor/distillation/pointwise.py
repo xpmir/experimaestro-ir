@@ -203,7 +203,7 @@ class PointwiseDistillationTrainer(LossTrainer):
         tokenized_records = inputs.get("tokenized_records")
 
         if tokenized_records is not None:
-            student_scores = self.model(records, tokenized=tokenized_records)
+            student_scores = self.model(tokenized=tokenized_records)
         else:
             student_scores = self.model(records)
 

@@ -67,7 +67,7 @@ class PairwiseTrainer(LossTrainer):
 
         # Get the next batch and compute the scores for each query/document
         if tokenized_records is not None:
-            rel_scores = self.model(records, tokenized=tokenized_records)
+            rel_scores = self.model(tokenized=tokenized_records)
         else:
             rel_scores = self.model(records)
 
