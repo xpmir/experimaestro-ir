@@ -292,6 +292,13 @@ class BOWSparseRetrieverIndexBuilder(Task, Prepare):
             compressed_path = self.index_path.with_name(
                 self.index_path.name + "_compressed"
             )
+            old_path = self.index_path.with_name(self.index_path.name + "_old")
+            # Remove the leftovers of an interrupted run: compressing into
+            # them would keep e.g. their vocabulary, whose term IDs differ
+            for path in (compressed_path, old_path):
+                if path.is_dir():
+                    logger.warning("Removing the leftover directory %s", path)
+                    shutil.rmtree(path)
             raw_index.compress(str(compressed_path))
 
             # Drop the reference so mmap'd files are closed before rmtree
@@ -302,7 +309,6 @@ class BOWSparseRetrieverIndexBuilder(Task, Prepare):
             # Replace uncompressed index with compressed one. Move the old
             # directory aside first so the compressed index is in place even
             # if removal fails (e.g. NFS .nfs* leftovers).
-            old_path = self.index_path.with_name(self.index_path.name + "_old")
             self.index_path.rename(old_path)
             compressed_path.rename(self.index_path)
             try:

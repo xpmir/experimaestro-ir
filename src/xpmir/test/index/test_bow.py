@@ -147,6 +147,41 @@ def test_bow_structured_queries(context, bow_index):
         ]
 
 
+def test_bow_index_ignores_leftovers(context):
+    """Leftovers of an interrupted run (a compressed index of other documents,
+    whose vocabulary assigns other term IDs) do not end up in the index"""
+    import impact_index
+
+    objects = ObjectStore()
+    builder = BOWSparseRetrieverIndexBuilder.C(
+        documents=SampleDocumentStore.C(num_docs=50), stemmer="none"
+    )
+    instance: BOWSparseRetrieverIndexBuilder = builder.instance(
+        context=context, objects=objects
+    )
+
+    # Stale compressed index: same terms, in another order
+    stale_raw = instance.index_path.with_name("stale")
+    stale_raw.mkdir(parents=True)
+    stale = impact_index.BOWIndexBuilder(
+        str(stale_raw), dtype="int32", stemmer="none", stop_words=False
+    )
+    stale.add_texts([(i, f"Document {49 - i}") for i in range(50)])
+    stale.build(False)
+    leftover = instance.index_path.with_name(instance.index_path.name + "_compressed")
+    impact_index.Index.load(str(stale_raw), False).compress(str(leftover))
+
+    instance.execute()
+    assert not leftover.exists()
+
+    retriever = BOWRetriever.C(
+        index=builder.task_outputs(lambda x: x), model=BM25.C(), topk=10
+    ).instance(context=context, objects=objects)
+    retriever.initialize()
+    for ix in (3, 7, 42):
+        assert [d.document["id"] for d in retriever.retrieve(str(ix))] == [str(ix)]
+
+
 def _supports(feature: str) -> bool:
     import impact_index
 
