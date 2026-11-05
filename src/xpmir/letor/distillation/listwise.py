@@ -1,4 +1,6 @@
 import sys
+import random
+import functools
 from typing import List
 from typing_extensions import ReadOnly, TypedDict
 import torch
@@ -330,14 +332,66 @@ class DistillationListwiseInputs(TypedDict):
 
 def distillation_listwise_collate(
     samples: List[ListwiseDistillationSample],
+    sampled_inbatch_negs: int = 0,
 ) -> DistillationListwiseInputs:
-    """Collate function for Distillation Listwise trainer"""
-    teacher_scores = torch.empty(len(samples), len(samples[0].documents))
+    """Collate function for Distillation Listwise trainer with optional in-batch negative sampling."""
+    if not samples:
+        raise ValueError(
+            "distillation_listwise_collate received an empty samples list."
+        )
+
+    batch_size = len(samples)
+    docs_per_query = len(samples[0].documents)
+
+    if sampled_inbatch_negs == 0:
+        teacher_scores = torch.empty(batch_size, docs_per_query)
+        records = PointwiseItems()
+        for ix, sample in enumerate(samples):
+            for doc in sample.documents:
+                records.add(PointwiseItem(sample.query, doc.document, doc.score))
+            teacher_scores[ix] = torch.tensor([doc.score for doc in sample.documents])
+
+        return DistillationListwiseInputs(
+            records=records, tokenized_records=None, teacher_scores=teacher_scores
+        )
+
+    # In-batch negative sampling from full document pool of other queries
+    if batch_size < 2:
+        raise ValueError(
+            f"Cannot sample in-batch negatives with batch_size={batch_size}. Expected batch_size >= 2."
+        )
+
+    pool_size_per_query = (batch_size - 1) * docs_per_query
+    if sampled_inbatch_negs > pool_size_per_query:
+        raise ValueError(
+            f"sampled_inbatch_negs ({sampled_inbatch_negs}) cannot exceed available documents "
+            f"from other queries in batch ({pool_size_per_query})."
+        )
+
+    total_docs_per_query = docs_per_query + sampled_inbatch_negs
+    teacher_scores = torch.zeros(batch_size, total_docs_per_query)
     records = PointwiseItems()
+
     for ix, sample in enumerate(samples):
-        for doc in sample.documents:
+        # 1. Original documents (1 positive + K mined negatives)
+        for doc_ix, doc in enumerate(sample.documents):
             records.add(PointwiseItem(sample.query, doc.document, doc.score))
-        teacher_scores[ix] = torch.tensor([doc.score for doc in sample.documents])
+            teacher_scores[ix, doc_ix] = doc.score
+
+        # 2. Extract full pool of other queries' documents
+        other_docs_pool = [
+            d.document
+            for j, other_sample in enumerate(samples)
+            if j != ix
+            for d in other_sample.documents
+        ]
+
+        # 3. Sample M in-batch negatives
+        chosen_neg_docs = random.sample(other_docs_pool, sampled_inbatch_negs)
+
+        for offset, neg_doc in enumerate(chosen_neg_docs):
+            records.add(PointwiseItem(sample.query, neg_doc, 0.0))
+            teacher_scores[ix, docs_per_query + offset] = 0.0
 
     return DistillationListwiseInputs(
         records=records, tokenized_records=None, teacher_scores=teacher_scores
@@ -349,6 +403,9 @@ class DistillationListwiseTrainer(LossTrainer):
 
     lossfn: Param[DistillationListwiseLoss]
     """The distillation pairwise batch function"""
+
+    sampled_inbatch_negs: Param[int] = field(default=0, ignore_default=True)
+    """Number of in-batch negatives to sample per query from other queries in the batch (default: 0)."""
 
     def initialize(
         self,
@@ -364,9 +421,15 @@ class DistillationListwiseTrainer(LossTrainer):
 
         dataset = self.sampler.as_dataset()
 
-        collate_fn = wrap_collate_with_tokenizer(
-            self.model, distillation_listwise_collate, log=logger
+        base_collate = (
+            functools.partial(
+                distillation_listwise_collate,
+                sampled_inbatch_negs=self.sampled_inbatch_negs,
+            )
+            if self.sampled_inbatch_negs > 0
+            else distillation_listwise_collate
         )
+        collate_fn = wrap_collate_with_tokenizer(self.model, base_collate, log=logger)
         self._create_dataloader(dataset, collate_fn=collate_fn)
 
     def train_batch(self, inputs: DistillationListwiseInputs):
