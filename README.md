@@ -191,20 +191,21 @@ which checks that every git source points to a release published on PyPI and
 that the lower bounds match it.
 
 ```bash
-alias urm="uvx --from 'uv-release-manager>=1,<2' uv-release-manager"
-
 # Can we release? (git sources, lower bounds, clean and pushed tree, uv.lock)
-urm check
+uv run uv-release-manager check
 # Move the git sources to the next (or latest) release containing the pinned
 # commit -- the dependency must be released first
-urm update
+uv run uv-release-manager update
 # Set the lower bounds to the released versions of the git sources
-urm bump
+uv run uv-release-manager bump
 # Check, then create the GitHub release (version and notes from the
 # conventional commits, with git-cliff)
-urm gh-release --dry-run
-urm gh-release
+uv run uv-release-manager gh-release --dry-run
+uv run uv-release-manager gh-release
 ```
+
+`uv-release-manager` is in the `release` dependency group (included in `dev`;
+the publish workflow installs it alone, without the project).
 
 The GitHub release triggers the publish workflow
 (`.github/workflows/python-publish.yml`), which runs `check` again before

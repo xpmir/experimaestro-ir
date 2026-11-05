@@ -25,7 +25,7 @@ jobs:
       # Fail fast: git sources at released versions published on PyPI, lower
       # bounds, up to date uv.lock (HEAD is the release tag: already pushed)
       - name: Check that the project can be released
-        run: uvx --from 'uv-release-manager>=1,<2' uv-release-manager check --no-push-check
+        run: uv run --only-group release --locked uv-release-manager check --no-push-check
 
       - name: Set up Python
         uses: actions/setup-python@v7
