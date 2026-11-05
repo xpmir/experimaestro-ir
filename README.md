@@ -180,6 +180,38 @@ experimaestro monitor
 
 ---
 
+## 🚀 Release (maintainers)
+
+During development, dependencies that evolve together (e.g. `datamaestro-ir`)
+can be pinned to git commits in `[tool.uv.sources]`. These sources are not
+part of the published package, which only has the lower bounds of
+`[project.dependencies]`: releases are made with
+[uv-release-manager](https://github.com/experimaestro/uv-release-manager),
+which checks that every git source points to a release published on PyPI and
+that the lower bounds match it.
+
+```bash
+alias urm="uvx --from 'uv-release-manager>=1,<2' uv-release-manager"
+
+# Can we release? (git sources, lower bounds, clean and pushed tree, uv.lock)
+urm check
+# Move the git sources to the next (or latest) release containing the pinned
+# commit -- the dependency must be released first
+urm update
+# Set the lower bounds to the released versions of the git sources
+urm bump
+# Check, then create the GitHub release (version and notes from the
+# conventional commits, with git-cliff)
+urm gh-release --dry-run
+urm gh-release
+```
+
+The GitHub release triggers the publish workflow
+(`.github/workflows/python-publish.yml`), which runs `check` again before
+building and uploading the package to PyPI.
+
+---
+
 ## 📖 Documentation & Resources
 
 - **Full Documentation**: [https://experimaestro-ir.readthedocs.io/](https://experimaestro-ir.readthedocs.io/)

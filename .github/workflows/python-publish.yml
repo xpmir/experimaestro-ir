@@ -19,6 +19,14 @@ jobs:
         with:
           fetch-depth: 0  # Needed for hatch-vcs to determine version
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      # Fail fast: git sources at released versions published on PyPI, lower
+      # bounds, up to date uv.lock (HEAD is the release tag: already pushed)
+      - name: Check that the project can be released
+        run: uvx --from 'uv-release-manager>=1,<2' uv-release-manager check --no-push-check
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
