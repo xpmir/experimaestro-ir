@@ -231,9 +231,22 @@ class BOWSparseRetrieverIndexBuilder(Task, Prepare):
             logger.info("Analyzer resource for %s: %s", language, path)
 
     def execute(self):
-        if self.index_path.is_dir():
-            shutil.rmtree(self.index_path)
-        self.index_path.mkdir(parents=True, exist_ok=True)
+        # With compression, the raw index is built aside and compressed into
+        # the index path (written last); without, it is built in place
+        raw_path = self.index_path
+        if self.compress:
+            raw_path = self.index_path.with_name(self.index_path.name + "_raw")
+
+        # Remove the leftovers of an interrupted run (including the
+        # directories of older versions): building or compressing into them
+        # could keep e.g. their vocabulary, whose term IDs differ
+        for suffix in ("", "_raw", "_compressed", "_old"):
+            path = self.index_path.with_name(self.index_path.name + suffix)
+            if path.is_dir():
+                if suffix:
+                    logger.warning("Removing the leftover directory %s", path)
+                shutil.rmtree(path)
+        raw_path.mkdir(parents=True, exist_ok=True)
 
         # Setup builder options
         options = impact_index.BuilderOptions()
@@ -248,7 +261,7 @@ class BOWSparseRetrieverIndexBuilder(Task, Prepare):
             if stemmer == "porter":
                 stemmer = None
         builder = impact_index.BOWIndexBuilder(
-            str(self.index_path),
+            str(raw_path),
             options=options,
             dtype="int32",
             stemmer=stemmer,
@@ -288,34 +301,18 @@ class BOWSparseRetrieverIndexBuilder(Task, Prepare):
 
         if self.compress:
             logger.info("Compressing the index")
-            raw_index = impact_index.Index.load(str(self.index_path), False)
-            compressed_path = self.index_path.with_name(
-                self.index_path.name + "_compressed"
-            )
-            old_path = self.index_path.with_name(self.index_path.name + "_old")
-            # Remove the leftovers of an interrupted run: compressing into
-            # them would keep e.g. their vocabulary, whose term IDs differ
-            for path in (compressed_path, old_path):
-                if path.is_dir():
-                    logger.warning("Removing the leftover directory %s", path)
-                    shutil.rmtree(path)
-            raw_index.compress(str(compressed_path))
+            raw_index = impact_index.Index.load(str(raw_path), False)
+            raw_index.compress(str(self.index_path))
 
             # Drop the reference so mmap'd files are closed before rmtree
             # (otherwise NFS leaves .nfs* files and rmdir fails with ENOTEMPTY)
             del raw_index
             gc.collect()
-
-            # Replace uncompressed index with compressed one. Move the old
-            # directory aside first so the compressed index is in place even
-            # if removal fails (e.g. NFS .nfs* leftovers).
-            self.index_path.rename(old_path)
-            compressed_path.rename(self.index_path)
             try:
-                shutil.rmtree(old_path)
+                shutil.rmtree(raw_path)
             except OSError as e:
                 logger.warning(
-                    "Could not fully remove old index at %s: %s", old_path, e
+                    "Could not fully remove the raw index at %s: %s", raw_path, e
                 )
             logger.info("Index compressed")
 

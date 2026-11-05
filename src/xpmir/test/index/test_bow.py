@@ -168,11 +168,16 @@ def test_bow_index_ignores_leftovers(context):
     )
     stale.add_texts([(i, f"Document {49 - i}") for i in range(50)])
     stale.build(False)
-    leftover = instance.index_path.with_name(instance.index_path.name + "_compressed")
-    impact_index.Index.load(str(stale_raw), False).compress(str(leftover))
+    # ... where the index (and the directories of older versions) would be
+    leftovers = [
+        instance.index_path.with_name(instance.index_path.name + suffix)
+        for suffix in ("", "_raw", "_compressed")
+    ]
+    for leftover in leftovers:
+        impact_index.Index.load(str(stale_raw), False).compress(str(leftover))
 
     instance.execute()
-    assert not leftover.exists()
+    assert [path.exists() for path in leftovers] == [True, False, False]
 
     retriever = BOWRetriever.C(
         index=builder.task_outputs(lambda x: x), model=BM25.C(), topk=10
