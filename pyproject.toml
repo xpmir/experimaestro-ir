@@ -25,7 +25,7 @@ dependencies = [
     "datamaestro>=0.2.3",
     "datamaestro-ir>=0.5.0",
     "docstring_parser",
-    "impact-index>=1.9.2",
+    "impact-index>=1.9.3",
     "pandas",
     "scipy",
     "attrs",
